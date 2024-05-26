@@ -142,6 +142,9 @@ fn main() -> Result<(), Error> {
         }
     }
 
+    println!();
+    print!("{}", include_str!("linearize.glsl"));
+
     for (i, (source, pass)) in sources.iter().zip(&preset.shaders).enumerate() {
         eprintln!("{}", pass.name.display());
 
@@ -233,7 +236,7 @@ fn main() -> Result<(), Error> {
         }
 
         let previous = if i == 0 {
-            String::from("HOOKED")
+            String::from("MAIN_RGB")
         } else {
             preset.shaders[i - 1]
                 .alias
@@ -246,6 +249,7 @@ fn main() -> Result<(), Error> {
             &previous,
             &parameter_names,
             &texture_names,
+            i + 1 == sources.len(),
         )?;
 
         for dep in merged.dependencies {

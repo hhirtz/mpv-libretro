@@ -24,7 +24,7 @@ fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a st
     }
     match libretro_pass_name {
         "Source" => prev_mpv_pass_name,
-        "Original" => "HOOKED",
+        "Original" => "MAIN_RGB",
         "Output" => "OUTPUT",
         pass => pass,
     }
@@ -561,7 +561,7 @@ fn remove_inputs(shader_ast: &mut ast::TranslationUnit) {
     }
 }
 
-fn hook_fn() -> ast::ExternalDeclaration {
+fn hook_fn(is_last_pass: bool) -> ast::ExternalDeclaration {
     let call_vertex_ident = ast::FunIdentifierData::ident("vertex_main").into();
     let call_vertex_stmt = ast::ExprData::FunCall(call_vertex_ident, vec![]);
     let call_vertex_stmt = ast::StatementData::Expression(
@@ -574,7 +574,13 @@ fn hook_fn() -> ast::ExternalDeclaration {
         ast::ExprStatementData(Some(call_fragment_stmt.into())).into(),
     );
 
-    let frag_color = Box::new(ast::ExprData::variable("FragColor").into());
+    let mut frag_color = Box::new(ast::ExprData::variable("FragColor").into());
+    if is_last_pass {
+        let delinearize =
+            ast::FunIdentifierData::Expr(Box::new(ast::ExprData::variable("delinearize").into()))
+                .into();
+        frag_color = Box::new(ast::ExprData::FunCall(delinearize, vec![*frag_color]).into());
+    }
     let return_frag_color_stmt =
         ast::StatementData::Jump(ast::JumpStatementData::Return(Some(frag_color)).into());
 
@@ -679,6 +685,7 @@ pub fn merge_vertex_and_fragment(
     prev_pass_name: &str,
     parameter_names: &HashSet<String>,
     texture_names: &HashSet<String>,
+    is_last_pass: bool,
 ) -> Result<MergeResult, Error> {
     let mut vertex_ast = ast::TranslationUnit::parse(vertex).map_err(|err| {
         for (lineno, line) in vertex.lines().enumerate() {
@@ -738,7 +745,7 @@ pub fn merge_vertex_and_fragment(
         vertex_ast.0.push(decl);
     }
 
-    vertex_ast.0.push(hook_fn());
+    vertex_ast.0.push(hook_fn(is_last_pass));
 
     let mut shader = String::with_capacity(vertex.len() + fragment.len());
     show_translation_unit(&mut shader, &vertex_ast, FormattingState::default())?;
