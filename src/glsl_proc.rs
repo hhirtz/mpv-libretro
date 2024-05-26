@@ -692,8 +692,12 @@ fn hook_fn() -> ast::ExternalDeclaration {
     ast::ExternalDeclarationData::FunctionDefinition(func.into()).into()
 }
 
-fn set_samplers(shader_ast: &mut ast::TranslationUnit, prev_pass_name: &str) -> HashSet<String> {
-    //let mut remove = BTreeSet::new();
+fn set_samplers(
+    shader_ast: &mut ast::TranslationUnit,
+    prev_pass_name: &str,
+    texture_names: &HashSet<String>,
+) -> HashSet<String> {
+    let mut remove = BTreeSet::new();
     let mut samplers = HashSet::new();
     for (i, ext_decl) in shader_ast.0.iter_mut().enumerate() {
         let ast::ExternalDeclarationData::Declaration(decl) = &mut **ext_decl else {
@@ -726,32 +730,28 @@ fn set_samplers(shader_ast: &mut ast::TranslationUnit, prev_pass_name: &str) -> 
         let name = init.head.name.as_ref().unwrap().as_str().to_owned();
         let mpv_name = mpv_pass_name(&name, prev_pass_name);
 
-        //init.head.ty.qualifier = None;
-        //let initializer = ast::ExprData::variable(&*format!("{mpv_name}_raw"));
-        //init.head.initializer =
-        //    Some(ast::InitializerData::Simple(Box::new(initializer.into())).into());
-
-        *ext_decl = ast::ExternalDeclarationData::Preprocessor(
-            ast::PreprocessorData::Define(
-                ast::PreprocessorDefineData::ObjectLike {
-                    ident: init.head.name.clone().unwrap(),
-                    value: format!("{mpv_name}_raw"),
-                }
+        if texture_names.contains(mpv_name) {
+            // mpv doesn't define texture samplers with a _raw suffix
+            remove.insert(i);
+        } else {
+            *ext_decl = ast::ExternalDeclarationData::Preprocessor(
+                ast::PreprocessorData::Define(
+                    ast::PreprocessorDefineData::ObjectLike {
+                        ident: init.head.name.clone().unwrap(),
+                        value: format!("{mpv_name}_raw"),
+                    }
+                    .into(),
+                )
                 .into(),
             )
-            .into(),
-        )
-        .into();
+            .into();
+        }
 
-        //remove.insert(i);
         samplers.insert(mpv_name.to_owned());
     }
-    //for remove in remove.into_iter().rev() {
-    //    shader_ast.0.remove(remove);
-    //}
-    //for sampler in &samplers {
-    //shader_ast.0.insert(0, k
-    //}
+    for remove in remove.into_iter().rev() {
+        shader_ast.0.remove(remove);
+    }
     samplers
 }
 
@@ -764,6 +764,7 @@ pub fn merge_vertex_and_fragment(
     vertex: &str,
     fragment: &str,
     prev_pass_name: &str,
+    texture_names: &HashSet<String>,
 ) -> Result<MergeResult, Error> {
     let mut vertex_ast = ast::TranslationUnit::parse(vertex).map_err(|err| {
         for (lineno, line) in vertex.lines().enumerate() {
@@ -814,7 +815,7 @@ pub fn merge_vertex_and_fragment(
     remove_push_constant_and_ubo(&mut fragment_ast);
     remove_inputs(&mut fragment_ast);
     into_namespace(&mut fragment_ast, "fragment_");
-    let samplers = set_samplers(&mut fragment_ast, prev_pass_name);
+    let samplers = set_samplers(&mut fragment_ast, prev_pass_name, texture_names);
     dependencies.extend(samplers);
     outputs_as_simple_globals(&mut fragment_ast);
 
