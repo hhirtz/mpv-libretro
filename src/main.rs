@@ -147,6 +147,14 @@ fn main() -> Result<(), Error> {
                 }
                 println!();
             }
+            image::DynamicImage::ImageRgba8(img) => {
+                println!("//!FORMAT rgba8");
+                for pixel in img.pixels() {
+                    let [r, g, b, a] = pixel.0;
+                    print!("{r:02x}{g:02x}{b:02x}{a:02x}");
+                }
+                println!();
+            }
             _ => panic!("unsupported color type for texture: {:?}", img.color()),
         }
     }
