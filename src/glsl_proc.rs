@@ -105,22 +105,22 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
     shader_ast.visit_mut(&mut NamespaceVisitor { prefix, globals });
 }
 
-/// Process the layout(push_constant) Push block.
+/// Process the layout(push_constant) Push & layout(std140) UBO blocks.
 ///
-/// This block may contain several things:
+/// These blocks may contain several things:
 /// - sizes of previous passes' textures (OriginalSize, SourceSize,
 ///   PASS_ALIASSize, ...)
 /// - FrameCount, the frame count (TODO take into account modulo preset parameters)
 /// - shader parameters
 ///
-/// Make this a struct instead and initialize all values.
+/// Make these a struct instead and initialize all values.
 ///
 /// From this:
 /// ```glsl
 /// layout(push_constant) uniform Push {
 ///     vec4 SourceSize;
 ///     vec4 OutputSize;
-///     float param2;
+///     float param1;
 ///     uint FrameCount;
 /// } params;
 /// ```
@@ -130,15 +130,15 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 /// struct _params_ {
 ///     vec4 SourceSize;
 ///     vec4 OutputSize;
-///     float param2;
+///     float param1;
 ///     uint FrameCount;
 /// } params = _params_(
-///     vec4(HOOKED_size, HOOKED_pt),
+///     vec4(PREVIOUSPASS_size, PREVIOUSPASS_pt),
 ///     vec4(target_size, 1.0/target_size.x, 1.0/target_size.y),
-///     float(param2_value),
+///     float(param1_value),
 ///     uint(frame));
 /// ```
-fn push_constant_as_struct(
+fn uniform_block_as_struct(
     shader_ast: &mut ast::TranslationUnit,
     prev_pass_name: &str,
     parameter_names: &HashSet<String>,
@@ -152,32 +152,25 @@ fn push_constant_as_struct(
             continue;
         };
 
-        let mut is_push_constant = false;
-        'outer: for qualifier in &block.qualifier.qualifiers {
-            let ast::TypeQualifierSpecData::Layout(qualifier) = &**qualifier else {
+        let mut is_layout = false;
+        for qualifier in &block.qualifier.qualifiers {
+            let ast::TypeQualifierSpecData::Layout(_) = &**qualifier else {
                 continue;
             };
-            for ident in &qualifier.ids {
-                let ast::LayoutQualifierSpecData::Identifier(ident, None) = &**ident else {
-                    continue;
-                };
-                if ident.as_str() == "push_constant" {
-                    is_push_constant = true;
-                    break 'outer;
-                }
-            }
+            is_layout = true;
+            break;
         }
-        if !is_push_constant {
+        if !is_layout || (block.name.as_str() != "UBO" && block.name.as_str() != "Push") {
+            println!("{}", block.name.as_str());
             continue;
         }
-        assert_eq!(block.name.as_str(), "Push");
 
         let Some(ident) = &block.identifier else {
             panic!("TODO remove block");
         };
         assert!(ident.array_spec.is_none());
 
-        dependencies = block
+        let new_deps = block
             .fields
             .iter()
             .flat_map(|field| &field.identifiers)
@@ -189,8 +182,8 @@ fn push_constant_as_struct(
                 } else {
                     None
                 }
-            })
-            .collect();
+            });
+        dependencies.extend(new_deps);
 
         let ident = &ident.ident;
 
@@ -203,6 +196,7 @@ fn push_constant_as_struct(
                 field.identifiers.retain(|ident| {
                     let s = ident.ident.as_str();
                     s == "FrameCount"
+                        || s == "MVP"
                         || s.strip_suffix("Size").is_some()
                         || parameter_names.contains(s)
                 });
@@ -252,6 +246,13 @@ fn push_constant_as_struct(
                         let expr = ast::ExprData::FunCall(uint.into(), vec![frame_ident.into()]);
                         return Some(expr.into());
                     }
+                    if s == "MVP" {
+                        let expr = ast::ExprData::FunCall(
+                            ty.clone(),
+                            vec![ast::ExprData::FloatConst(1.0).into()],
+                        );
+                        return Some(expr.into());
+                    }
                     if let Some(pass) = s.strip_suffix("Size") {
                         let texture_name = mpv_pass_name(pass, prev_pass_name);
                         let vec4 = ast::TypeSpecifierData {
@@ -290,10 +291,10 @@ fn push_constant_as_struct(
                     if parameter_names.contains(ident.ident.as_str()) {
                         let ident = ast::ExprData::variable(ident.ident.clone());
                         let expr = ast::ExprData::FunCall(ty.clone(), vec![ident.into()]).into();
-                        Some(expr)
-                    } else {
-                        None
+                        return Some(expr);
                     }
+
+                    None
                 })
             })
             .collect();
@@ -310,119 +311,8 @@ fn push_constant_as_struct(
         };
         let new_decl = ast::DeclarationData::InitDeclaratorList(new_decl_list.into());
         *decl = new_decl.into();
-        break;
     }
     dependencies
-}
-
-/// Process the layout(set140) UBO block.
-///
-/// This block contains the MVP matrix and shader parameters. Make this block a
-/// struct instead
-///
-/// From this:
-/// ```glsl
-/// layout(std140, set = 0, binding = 0) uniform UBO {
-///     mat4 MVP;
-///     float param1;
-///     float param2;
-/// } global;
-/// ```
-///
-/// To this:
-/// ```glsl
-/// struct _global_ {
-///     mat4 MVP;
-///     float param1;
-///     float param2;
-/// } global = _global_(mat4(1.0), param1_value, param2_value);
-/// ```
-fn ubo_as_struct(shader_ast: &mut ast::TranslationUnit) {
-    for decl in &mut shader_ast.0 {
-        let ast::ExternalDeclarationData::Declaration(decl) = &mut **decl else {
-            continue;
-        };
-        let ast::DeclarationData::Block(block) = &**decl else {
-            continue;
-        };
-
-        let mut is_layout = false;
-        for qualifier in &block.qualifier.qualifiers {
-            let ast::TypeQualifierSpecData::Layout(_) = &**qualifier else {
-                continue;
-            };
-            is_layout = true;
-            break;
-        }
-        if !is_layout || block.name.as_str() != "UBO" {
-            println!("{}", block.name.as_str());
-            continue;
-        }
-
-        let Some(ident) = &block.identifier else {
-            panic!("TODO remove block");
-        };
-        assert!(ident.array_spec.is_none());
-        //continue;
-
-        let ident = &ident.ident;
-
-        let new_decl_struct_name = ast::TypeNameData::from(&*format!("_{ident}_"));
-        let new_decl_struct_fields = block.fields.clone();
-        let new_decl_struct = ast::StructSpecifierData {
-            name: Some(new_decl_struct_name.clone().into()),
-            fields: new_decl_struct_fields,
-        };
-        let new_decl_full_type = ast::FullySpecifiedTypeData {
-            qualifier: None,
-            ty: ast::TypeSpecifierData {
-                ty: ast::TypeSpecifierNonArrayData::Struct(new_decl_struct.into()).into(),
-                array_specifier: None,
-            }
-            .into(),
-        };
-        let new_decl_init_type = ast::TypeSpecifierData {
-            ty: ast::TypeSpecifierNonArrayData::TypeName(new_decl_struct_name.into()).into(),
-            array_specifier: None,
-        };
-        let new_decl_init_fun =
-            ast::FunIdentifierData::TypeSpecifier(Box::new(new_decl_init_type.into()));
-        let new_inits = block
-            .fields
-            .iter()
-            .flat_map(|field| {
-                let ty = ast::Node::from(ast::FunIdentifierData::TypeSpecifier(Box::new(
-                    field.ty.clone(),
-                )));
-                field.identifiers.iter().map(move |ident| {
-                    if ident.ident.as_str() == "MVP" {
-                        ast::ExprData::FunCall(
-                            ty.clone(),
-                            vec![ast::ExprData::FloatConst(1.0).into()],
-                        )
-                        .into()
-                    } else {
-                        let ident = ast::ExprData::variable(ident.ident.clone());
-                        ast::ExprData::FunCall(ty.clone(), vec![ident.into()]).into()
-                    }
-                })
-            })
-            .collect();
-        let new_decl_init = ast::ExprData::FunCall(new_decl_init_fun.into(), new_inits);
-        let new_decl_head = ast::SingleDeclarationData {
-            ty: new_decl_full_type.into(),
-            name: Some(ident.clone()),
-            array_specifier: None,
-            initializer: Some(ast::InitializerData::Simple(Box::new(new_decl_init.into())).into()),
-        };
-        let new_decl_list = ast::InitDeclaratorListData {
-            head: new_decl_head.into(),
-            tail: vec![],
-        };
-        let new_decl = ast::DeclarationData::InitDeclaratorList(new_decl_list.into());
-        *decl = new_decl.into();
-        break;
-    }
 }
 
 fn set_vertex_inputs(shader_ast: &mut ast::TranslationUnit) {
@@ -826,8 +716,8 @@ pub fn merge_vertex_and_fragment(
     );
     into_namespace(&mut vertex_ast, "vertex_");
     let mut dependencies =
-        push_constant_as_struct(&mut vertex_ast, prev_pass_name, parameter_names);
-    ubo_as_struct(&mut vertex_ast);
+        uniform_block_as_struct(&mut vertex_ast, prev_pass_name, parameter_names);
+    dependencies.insert("HOOKED".to_owned()); // HOOKED is needed for TexCoord init
     set_vertex_inputs(&mut vertex_ast);
     outputs_as_simple_globals(&mut vertex_ast);
 
