@@ -57,7 +57,13 @@ fn main() -> Result<(), Error> {
     let preset_file = env::args_os()
         .nth(1)
         .expect("usage: mpv-libretro PRESET_FILE");
-    let preset = ShaderPreset::try_parse(preset_file)?;
+    let mut preset = ShaderPreset::try_parse(preset_file)?;
+
+    for pass in &mut preset.shaders {
+        if let Some(alias) = &mut pass.alias {
+            *alias = alias.trim().to_owned();
+        }
+    }
 
     let sources: Result<Vec<ShaderSource>, Error> = preset
         .shaders
@@ -69,6 +75,10 @@ fn main() -> Result<(), Error> {
     let parameters: BTreeMap<String, ShaderParameter> = sources
         .iter()
         .flat_map(|source| source.parameters.clone())
+        .collect();
+    let parameter_names: HashSet<String> = parameters
+        .values()
+        .map(|p| p.id.replace('-', "_"))
         .collect();
 
     for source in &sources {
@@ -234,6 +244,7 @@ fn main() -> Result<(), Error> {
             &source.vertex,
             &source.fragment,
             &previous,
+            &parameter_names,
             &texture_names,
         )?;
 

@@ -141,6 +141,7 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 fn push_constant_as_struct(
     shader_ast: &mut ast::TranslationUnit,
     prev_pass_name: &str,
+    parameter_names: &HashSet<String>,
 ) -> HashSet<String> {
     let mut dependencies = HashSet::new();
     for decl in &mut shader_ast.0 {
@@ -194,7 +195,24 @@ fn push_constant_as_struct(
         let ident = &ident.ident;
 
         let new_decl_struct_name = ast::TypeNameData::from(&*format!("_{ident}_"));
-        let new_decl_struct_fields = block.fields.clone();
+        let new_decl_struct_fields: Vec<_> = block
+            .fields
+            .iter()
+            .cloned()
+            .filter_map(|mut field| {
+                field.identifiers.retain(|ident| {
+                    let s = ident.ident.as_str();
+                    s == "FrameCount"
+                        || s.strip_suffix("Size").is_some()
+                        || parameter_names.contains(s)
+                });
+                if field.identifiers.is_empty() {
+                    None
+                } else {
+                    Some(field)
+                }
+            })
+            .collect();
         let new_decl_struct = ast::StructSpecifierData {
             name: Some(new_decl_struct_name.clone().into()),
             fields: new_decl_struct_fields,
@@ -220,7 +238,7 @@ fn push_constant_as_struct(
                 let ty = ast::Node::from(ast::FunIdentifierData::TypeSpecifier(Box::new(
                     field.ty.clone(),
                 )));
-                field.identifiers.iter().map(move |ident| {
+                field.identifiers.iter().filter_map(move |ident| {
                     assert!(ident.array_spec.is_none());
                     let s = ident.ident.as_str();
                     if s == "FrameCount" {
@@ -232,7 +250,7 @@ fn push_constant_as_struct(
                         // TODO take into account modulo shader preset param
                         let frame_ident = ast::ExprData::variable("frame");
                         let expr = ast::ExprData::FunCall(uint.into(), vec![frame_ident.into()]);
-                        return expr.into();
+                        return Some(expr.into());
                     }
                     if let Some(pass) = s.strip_suffix("Size") {
                         let texture_name = mpv_pass_name(pass, prev_pass_name);
@@ -266,11 +284,16 @@ fn push_constant_as_struct(
                                 vec![size_ident.into(), pt_ident.into()],
                             )
                         };
-                        return expr.into();
+                        return Some(expr.into());
                     }
 
-                    let ident = ast::ExprData::variable(ident.ident.clone());
-                    ast::ExprData::FunCall(ty.clone(), vec![ident.into()]).into()
+                    if parameter_names.contains(ident.ident.as_str()) {
+                        let ident = ast::ExprData::variable(ident.ident.clone());
+                        let expr = ast::ExprData::FunCall(ty.clone(), vec![ident.into()]).into();
+                        Some(expr)
+                    } else {
+                        None
+                    }
                 })
             })
             .collect();
@@ -764,6 +787,7 @@ pub fn merge_vertex_and_fragment(
     vertex: &str,
     fragment: &str,
     prev_pass_name: &str,
+    parameter_names: &HashSet<String>,
     texture_names: &HashSet<String>,
 ) -> Result<MergeResult, Error> {
     let mut vertex_ast = ast::TranslationUnit::parse(vertex).map_err(|err| {
@@ -801,7 +825,8 @@ pub fn merge_vertex_and_fragment(
         .into(),
     );
     into_namespace(&mut vertex_ast, "vertex_");
-    let mut dependencies = push_constant_as_struct(&mut vertex_ast, prev_pass_name);
+    let mut dependencies =
+        push_constant_as_struct(&mut vertex_ast, prev_pass_name, parameter_names);
     ubo_as_struct(&mut vertex_ast);
     set_vertex_inputs(&mut vertex_ast);
     outputs_as_simple_globals(&mut vertex_ast);
