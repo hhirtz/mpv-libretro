@@ -1,13 +1,8 @@
 # mpv-libretro
 
-Compile libretro shaders presets (.slangp) into MPV shaders.
+Convert libretro shaders presets (.slangp) into MPV shaders.
 
-Output shaders require `vo=gpu-next`.
-
-## Dependencies
-
-- shaderc
-- glslang
+Shaders created with this tool require `vo=gpu-next`.
 
 ## Usage
 

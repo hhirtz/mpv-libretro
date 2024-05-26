@@ -9,9 +9,10 @@ use glsl_lang::visitor::VisitorMut;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 
-// TODO use defines for sampler2D renames
-// TODO remove gl_Position from code
-
+/// Convert libretro pass names to mpv's
+///
+/// See libretro slang docs
+/// https://github.com/libretro/slang-shaders/blob/6cb93ce1be67b314a96f5e346befb2b58b63eb04/README.md#builtin-variables
 fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a str) -> &'a str {
     if let Some(history_n) = libretro_pass_name.strip_prefix("OriginalHistory") {
         if history_n != "0" {
@@ -30,6 +31,7 @@ fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a st
     }
 }
 
+/// Whether this pass alias (from libretro) is known and defined in the preset.
 fn is_alias_known(pass: &str, known_aliases: &HashSet<String>) -> bool {
     match pass {
         "Source" | "Original" | "Output" => true,
@@ -37,24 +39,7 @@ fn is_alias_known(pass: &str, known_aliases: &HashSet<String>) -> bool {
     }
 }
 
-// the glsl crate doesn't like comments after preprocessor directives it seems
-//fn remove_postpreproc_comments(source: &str) -> String {
-//    let mut dest = String::with_capacity(source.len());
-//    for line in source.lines() {
-//        if line.starts_with('#') {
-//            if let Some((directive, _comment)) = line.split_once("//") {
-//                let directive = directive.trim_end();
-//                dest.push_str(directive);
-//                dest.push('\n');
-//                continue;
-//            }
-//        }
-//        dest.push_str(line);
-//        dest.push('\n');
-//    }
-//    dest
-//}
-
+/// Add "{prefix}_" to all global variables and functions.
 fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
     struct NamespaceVisitor<'a> {
         prefix: &'a str,
@@ -326,9 +311,15 @@ fn uniform_block_as_struct(
     dependencies
 }
 
+/// Redefine the vertex shader inputs:
+///
+/// - layout(location = 0) vec4: the position, redefined as `vec4(HOOKED_pos, 0.0, 1.0)`
+/// - layout(location = 1) vec2: the texture coordinates, redefined as `HOOKED_pos`
+///
+/// See libretro docs
+/// https://github.com/libretro/slang-shaders/blob/6cb93ce1be67b314a96f5e346befb2b58b63eb04/README.md#vertex-inputs
 fn set_vertex_inputs(shader_ast: &mut ast::TranslationUnit) {
-    let mut remove = None;
-    for (i, decl) in shader_ast.0.iter_mut().enumerate() {
+    for decl in &mut shader_ast.0 {
         let ast::ExternalDeclarationData::Declaration(decl) = &mut **decl else {
             continue;
         };
@@ -433,11 +424,10 @@ fn set_vertex_inputs(shader_ast: &mut ast::TranslationUnit) {
             _ => panic!("unexpected in location={location}"),
         }
     }
-    if let Some(remove) = remove {
-        shader_ast.0.remove(remove);
-    }
 }
 
+/// Make shader outputs (`layout() out`) as simple globals, that are shared
+/// between the vertex and fragment shader codes.
 fn outputs_as_simple_globals(shader_ast: &mut ast::TranslationUnit) {
     for decl in &mut shader_ast.0 {
         let ast::ExternalDeclarationData::Declaration(decl) = &mut **decl else {
@@ -490,6 +480,10 @@ fn outputs_as_simple_globals(shader_ast: &mut ast::TranslationUnit) {
     }
 }
 
+/// Remove all `layout(push_constant)` and `layout() UBO` blocks.
+///
+/// Used on the fragment shader to avoid duplicate definitions, since it
+/// (should?) share those with the vertex shader.
 fn remove_push_constant_and_ubo(shader_ast: &mut ast::TranslationUnit) {
     let mut remove = BTreeSet::new();
     for (i, decl) in shader_ast.0.iter_mut().enumerate() {
@@ -518,6 +512,10 @@ fn remove_push_constant_and_ubo(shader_ast: &mut ast::TranslationUnit) {
     }
 }
 
+/// Remove shader inputs (`layout() in`) from the shader.
+///
+/// Used on the fragment shader, since inputs are defined as simple global
+/// variables and shared between the two shaders.
 fn remove_inputs(shader_ast: &mut ast::TranslationUnit) {
     let mut remove = BTreeSet::new();
     for (i, decl) in shader_ast.0.iter_mut().enumerate() {
@@ -572,6 +570,13 @@ fn remove_inputs(shader_ast: &mut ast::TranslationUnit) {
     }
 }
 
+/// Create mpv's `hook` function.
+///
+/// This function calls the vertex shader, then the fragment shader, then
+/// returns `FragColor` (or whatever is named the fragment shader output).
+///
+/// Is `is_last_pass` is true, then it also add a call to `delinearize` to
+/// convert sRGB to linear RGB.
 fn hook_fn(is_last_pass: bool) -> ast::ExternalDeclaration {
     let call_vertex_ident = ast::FunIdentifierData::ident("vertex_main").into();
     let call_vertex_stmt = ast::ExprData::FunCall(call_vertex_ident, vec![]);
@@ -622,6 +627,7 @@ fn hook_fn(is_last_pass: bool) -> ast::ExternalDeclaration {
     ast::ExternalDeclarationData::FunctionDefinition(func.into()).into()
 }
 
+/// Add proper definitions for the samplers used in the fragment shader.
 fn set_samplers(
     shader_ast: &mut ast::TranslationUnit,
     prev_pass_name: &str,
@@ -690,13 +696,26 @@ pub struct MergeResult {
     pub dependencies: HashSet<String>,
 }
 
+/// Merge a vertex shader with its fragment shader.
+///
+/// This creates a new mpv shader that call both shaders' main function, and
+/// return the result of the fragment shader.
+///
+/// The vertex shader is included because some libretro shaders use it for some
+/// things it seems...
 pub fn merge_vertex_and_fragment(
     vertex: &str,
     fragment: &str,
+    // we need this to replace the instances of `Source` in the original code
     prev_pass_name: &str,
+    // we need this to remove references unknown passes in the code
     pass_aliases: &HashSet<String>,
+    // we need this to remove references unknown parameters in the code
     parameter_names: &HashSet<String>,
+    // we need this because mpv defines texture and pass samplers differently.
+    // pass samplers have a `_raw` suffix, while texture samplers don't.
     texture_names: &HashSet<String>,
+    // whether we need to add a call to `delinearize` in the `hook` function.
     is_last_pass: bool,
 ) -> Result<MergeResult, Error> {
     let mut vertex_ast = ast::TranslationUnit::parse(vertex).map_err(|err| {

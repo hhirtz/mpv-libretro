@@ -49,6 +49,7 @@ impl fmt::Debug for Error {
     }
 }
 
+/// Dummy name for passes that don't have aliases in the preset.
 fn generated_pass_name(pass_no: usize) -> String {
     format!("_PASS_{pass_no}")
 }
@@ -59,6 +60,7 @@ fn main() -> Result<(), Error> {
         .expect("usage: mpv-libretro PRESET_FILE");
     let mut preset = ShaderPreset::try_parse(preset_file)?;
 
+    // TODO patch librashader to trim aliases
     for pass in &mut preset.shaders {
         if let Some(alias) = &mut pass.alias {
             *alias = alias.trim().to_owned();
@@ -145,10 +147,11 @@ fn main() -> Result<(), Error> {
                 }
                 println!();
             }
-            _ => panic!("unsupported format"),
+            _ => panic!("unsupported color type for texture: {:?}", img.color()),
         }
     }
 
+    // libretro shaders expect linear RGB while mpv's MAIN texture is sRGB.
     println!();
     print!("{}", include_str!("linearize.glsl"));
 
