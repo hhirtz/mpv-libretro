@@ -72,6 +72,12 @@ fn main() -> Result<(), Error> {
         .collect();
     let sources = sources?;
 
+    let pass_aliases: HashSet<String> = preset
+        .shaders
+        .iter()
+        .filter_map(|pass| pass.alias.clone())
+        .collect();
+
     let parameters: BTreeMap<String, ShaderParameter> = sources
         .iter()
         .flat_map(|source| source.parameters.clone())
@@ -88,6 +94,7 @@ fn main() -> Result<(), Error> {
             }
         }
     }
+
     let texture_names: HashSet<String> = preset
         .textures
         .iter()
@@ -247,6 +254,7 @@ fn main() -> Result<(), Error> {
             &source.vertex,
             &source.fragment,
             &previous,
+            &pass_aliases,
             &parameter_names,
             &texture_names,
             i + 1 == sources.len(),

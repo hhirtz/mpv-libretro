@@ -30,6 +30,13 @@ fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a st
     }
 }
 
+fn is_alias_known(pass: &str, known_aliases: &HashSet<String>) -> bool {
+    match pass {
+        "Source" | "Original" | "Output" => true,
+        pass => known_aliases.contains(pass),
+    }
+}
+
 // the glsl crate doesn't like comments after preprocessor directives it seems
 //fn remove_postpreproc_comments(source: &str) -> String {
 //    let mut dest = String::with_capacity(source.len());
@@ -141,6 +148,7 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 fn uniform_block_as_struct(
     shader_ast: &mut ast::TranslationUnit,
     prev_pass_name: &str,
+    pass_aliases: &HashSet<String>,
     parameter_names: &HashSet<String>,
 ) -> HashSet<String> {
     let mut dependencies = HashSet::new();
@@ -176,12 +184,12 @@ fn uniform_block_as_struct(
             .flat_map(|field| &field.identifiers)
             .filter_map(|ident| {
                 let s = ident.ident.as_str();
-                if let Some(pass) = s.strip_suffix("Size") {
-                    let texture_name = mpv_pass_name(pass, prev_pass_name);
-                    Some(texture_name.to_owned())
-                } else {
-                    None
+                let pass = s.strip_suffix("Size")?;
+                if !is_alias_known(pass, pass_aliases) {
+                    return None;
                 }
+                let texture_name = mpv_pass_name(pass, prev_pass_name);
+                Some(texture_name.to_owned())
             });
         dependencies.extend(new_deps);
 
@@ -195,10 +203,10 @@ fn uniform_block_as_struct(
             .filter_map(|mut field| {
                 field.identifiers.retain(|ident| {
                     let s = ident.ident.as_str();
-                    s == "FrameCount"
-                        || s == "MVP"
-                        || s.strip_suffix("Size").is_some()
-                        || parameter_names.contains(s)
+                    if let Some(alias) = s.strip_suffix("Size") {
+                        return is_alias_known(alias, pass_aliases);
+                    }
+                    s == "FrameCount" || s == "MVP" || parameter_names.contains(s)
                 });
                 if field.identifiers.is_empty() {
                     None
@@ -254,6 +262,9 @@ fn uniform_block_as_struct(
                         return Some(expr.into());
                     }
                     if let Some(pass) = s.strip_suffix("Size") {
+                        if !is_alias_known(pass, pass_aliases) {
+                            return None;
+                        }
                         let texture_name = mpv_pass_name(pass, prev_pass_name);
                         let vec4 = ast::TypeSpecifierData {
                             ty: ast::TypeSpecifierNonArrayData::Vec4.into(),
@@ -683,6 +694,7 @@ pub fn merge_vertex_and_fragment(
     vertex: &str,
     fragment: &str,
     prev_pass_name: &str,
+    pass_aliases: &HashSet<String>,
     parameter_names: &HashSet<String>,
     texture_names: &HashSet<String>,
     is_last_pass: bool,
@@ -722,8 +734,12 @@ pub fn merge_vertex_and_fragment(
         .into(),
     );
     into_namespace(&mut vertex_ast, "vertex_");
-    let mut dependencies =
-        uniform_block_as_struct(&mut vertex_ast, prev_pass_name, parameter_names);
+    let mut dependencies = uniform_block_as_struct(
+        &mut vertex_ast,
+        prev_pass_name,
+        pass_aliases,
+        parameter_names,
+    );
     dependencies.insert("HOOKED".to_owned()); // HOOKED is needed for TexCoord init
     set_vertex_inputs(&mut vertex_ast);
     outputs_as_simple_globals(&mut vertex_ast);
