@@ -60,10 +60,15 @@ fn main() -> Result<(), Error> {
         .expect("usage: mpv-libretro PRESET_FILE");
     let mut preset = ShaderPreset::try_parse(preset_file)?;
 
-    // TODO patch librashader to trim aliases
     for pass in &mut preset.shaders {
         if let Some(alias) = &mut pass.alias {
+            // TODO patch librashader to trim aliases
             *alias = alias.trim().to_owned();
+
+            // TODO patch librashader to handle ""
+            if alias == "\"\"" {
+                pass.alias = None;
+            }
         }
     }
 
