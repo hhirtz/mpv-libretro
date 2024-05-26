@@ -133,6 +133,7 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 fn uniform_block_as_struct(
     shader_ast: &mut ast::TranslationUnit,
     prev_pass_name: &str,
+    current_pass_name: &str,
     pass_aliases: &HashSet<String>,
     parameter_names: &HashSet<String>,
 ) -> HashSet<String> {
@@ -170,7 +171,10 @@ fn uniform_block_as_struct(
             .filter_map(|ident| {
                 let s = ident.ident.as_str();
                 let pass = s.strip_suffix("Size")?;
-                if !is_alias_known(pass, pass_aliases) {
+                if !is_alias_known(pass, pass_aliases)
+                    || pass == current_pass_name
+                    || pass == "Output"
+                {
                     return None;
                 }
                 let texture_name = mpv_pass_name(pass, prev_pass_name);
@@ -256,7 +260,7 @@ fn uniform_block_as_struct(
                             array_specifier: None,
                         };
                         let vec4 = ast::FunIdentifierData::TypeSpecifier(Box::new(vec4.into()));
-                        let expr = if texture_name == "OUTPUT" {
+                        let expr = if texture_name == "OUTPUT" || pass == current_pass_name {
                             let size_ident = ast::ExprData::variable("target_size");
                             let ptx_ident = ast::ExprData::Binary(
                                 ast::BinaryOpData::Div.into(),
@@ -708,6 +712,9 @@ pub fn merge_vertex_and_fragment(
     fragment: &str,
     // we need this to replace the instances of `Source` in the original code
     prev_pass_name: &str,
+    // we need this to replace the instances of this pass (mpv cannot bind a
+    // pass to itself) to `target_size`
+    current_pass_name: &str,
     // we need this to remove references unknown passes in the code
     pass_aliases: &HashSet<String>,
     // we need this to remove references unknown parameters in the code
@@ -756,6 +763,7 @@ pub fn merge_vertex_and_fragment(
     let mut dependencies = uniform_block_as_struct(
         &mut vertex_ast,
         prev_pass_name,
+        current_pass_name,
         pass_aliases,
         parameter_names,
     );

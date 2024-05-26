@@ -261,10 +261,12 @@ fn main() -> Result<(), Error> {
                 .clone()
                 .unwrap_or(generated_pass_name(i - 1))
         };
+        let current = pass.alias.clone().unwrap_or(generated_pass_name(i));
         let merged = glsl_proc::merge_vertex_and_fragment(
             &source.vertex,
             &source.fragment,
             &previous,
+            &current,
             &pass_aliases,
             &parameter_names,
             &texture_names,
@@ -272,9 +274,6 @@ fn main() -> Result<(), Error> {
         )?;
 
         for dep in merged.dependencies {
-            if dep == "OUTPUT" {
-                continue;
-            }
             println!("//!BIND {dep}");
         }
 
