@@ -288,8 +288,8 @@ fn uniform_block_as_struct(
                         return Some(expr.into());
                     }
 
-                    if parameter_names.contains(ident.ident.as_str()) {
-                        let ident = ast::ExprData::variable(ident.ident.clone());
+                    if parameter_names.contains(s) {
+                        let ident = ast::ExprData::variable(&*crate::normalize_parameter_name(s));
                         let expr = ast::ExprData::FunCall(ty.clone(), vec![ident.into()]).into();
                         return Some(expr);
                     }
