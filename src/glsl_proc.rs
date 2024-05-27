@@ -55,6 +55,22 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
             }
             Visit::Parent
         }
+
+        fn visit_expr(&mut self, expr: &mut ast::Expr) -> Visit {
+            match &mut **expr {
+                ast::ExprData::Dot(left, _) => {
+                    // don't rename struct fields
+                    left.visit_mut(self);
+                    Visit::Parent
+                }
+                _ => Visit::Children,
+            }
+        }
+
+        fn visit_struct_field_specifier(&mut self, _: &mut ast::StructFieldSpecifier) -> Visit {
+            // don't rename struct fields
+            Visit::Parent
+        }
     }
 
     let mut globals = HashSet::new();
