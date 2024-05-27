@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 glsl-lang = { version = "0.5.2", default-features = false, features = ["lexer-v2-full"] }
-image = "0.25.1"
+image = { version = "0.25.1", default-features = false, features = ["jpeg", "png"] }
 librashader-common = { version = "0.2.7", default-features = false }
 librashader-preprocess = { version = "0.2.7", default-features = false }
 librashader-presets = { version = "0.2.7", default-features = false }
