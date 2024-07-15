@@ -121,6 +121,8 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 ///   PASS_ALIASSize, ...)
 /// - FinalViewportSize, the size of the player window
 /// - FrameCount, the frame count (TODO take into account modulo preset parameters)
+/// - FrameDirection, equals 1 (resp. -1) if the video playback is going
+///   forwards (resp. backwards)
 /// - shader parameters
 ///
 /// Make these a struct instead and initialize all values.
@@ -213,7 +215,8 @@ fn uniform_block_as_struct(
                     if let Some(alias) = s.strip_suffix("Size") {
                         return is_alias_known(alias, pass_aliases);
                     }
-                    s == "FrameCount" || s == "MVP" || parameter_names.contains(s)
+                    matches!(s, "FrameCount" | "FrameDirection" | "MVP")
+                        || parameter_names.contains(s)
                 });
                 if field.identifiers.is_empty() {
                     None
@@ -259,6 +262,11 @@ fn uniform_block_as_struct(
                         // TODO take into account modulo shader preset param
                         let frame_ident = ast::ExprData::variable("frame");
                         let expr = ast::ExprData::FunCall(uint.into(), vec![frame_ident.into()]);
+                        return Some(expr.into());
+                    }
+                    if s == "FrameDirection" {
+                        // assume playback is always going forwards.
+                        let expr = ast::ExprData::IntConst(1);
                         return Some(expr.into());
                     }
                     if s == "MVP" {
