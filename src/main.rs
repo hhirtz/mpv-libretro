@@ -55,10 +55,17 @@ fn generated_pass_name(pass_no: usize) -> String {
 }
 
 fn normalize_parameter_name(name: &str) -> String {
-    match name {
-        // These keywords are used by mpv and will conflict.
-        "linearize" | "delinearize" => format!("{name}_"),
-        _ => name.to_owned(),
+    // mpv uses defines for param names, so swizzles are a no go
+    let swizzle = name.len() <= 4
+        && (name.chars().all(|c| "rgba".contains(c)) || name.chars().all(|c| "xyzw".contains(c)));
+
+    // These keywords are used by mpv and will conflict.
+    let reserved_keyword = matches!(name, "linearize" | "delinearize");
+
+    if swizzle || reserved_keyword {
+        format!("{name}_")
+    } else {
+        name.to_owned()
     }
 }
 
