@@ -27,6 +27,7 @@ fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a st
         "Source" => prev_mpv_pass_name,
         "Original" => "MAIN_RGB",
         "Output" => "OUTPUT",
+        "FinalViewport" => "VIEWPORT",
         pass => pass,
     }
 }
@@ -34,7 +35,7 @@ fn mpv_pass_name<'a>(mut libretro_pass_name: &'a str, prev_mpv_pass_name: &'a st
 /// Whether this pass alias (from libretro) is known and defined in the preset.
 fn is_alias_known(pass: &str, known_aliases: &HashSet<String>) -> bool {
     match pass {
-        "Source" | "Original" | "Output" => true,
+        "Source" | "Original" | "Output" | "FinalViewport" => true,
         pass => known_aliases.contains(pass),
     }
 }
@@ -118,6 +119,7 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
 /// These blocks may contain several things:
 /// - sizes of previous passes' textures (OriginalSize, SourceSize,
 ///   PASS_ALIASSize, ...)
+/// - FinalViewportSize, the size of the player window
 /// - FrameCount, the frame count (TODO take into account modulo preset parameters)
 /// - shader parameters
 ///

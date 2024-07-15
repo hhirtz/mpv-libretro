@@ -182,6 +182,10 @@ fn main() -> Result<(), Error> {
     println!();
     print!("{}", include_str!("linearize.glsl"));
 
+    // some shaders need access to the size of the viewport/window.
+    println!();
+    print!("{}", include_str!("viewport_size.glsl"));
+
     for (i, (source, pass)) in sources.iter().zip(&preset.shaders).enumerate() {
         eprintln!("{}", pass.name.display());
 
