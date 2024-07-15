@@ -3,7 +3,10 @@ name = "mpv-libretro"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+debug = "line-tables-only"
+
 
 [dependencies]
 glsl-lang = { version = "0.5.2", default-features = false, features = ["lexer-v2-full"] }
