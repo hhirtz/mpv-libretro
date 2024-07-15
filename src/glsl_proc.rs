@@ -721,6 +721,30 @@ fn set_samplers(
     samplers
 }
 
+/// Fix the GLSL source so that glsl-lang can handle it.
+///
+/// Specifically, glsl-lang throws errors on swizzled float literals:
+/// https://www.khronos.org/opengl/wiki/Data_Type_(GLSL)#Swizzling
+fn fix_glsl(src: &str) -> String {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static RE_VEC4: OnceLock<Regex> = OnceLock::new();
+    static RE_VEC3: OnceLock<Regex> = OnceLock::new();
+    static RE_VEC2: OnceLock<Regex> = OnceLock::new();
+
+    let re_vec4 = RE_VEC4.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xxxx").unwrap());
+    let re_vec3 = RE_VEC3.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xxx").unwrap());
+    let re_vec2 = RE_VEC2.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xx").unwrap());
+
+    // In this order, to avoid wrong matches
+    let src = re_vec4.replace_all(src, "vec4($1)");
+    let src = re_vec3.replace_all(&src, "vec3($1)");
+    let src = re_vec2.replace_all(&src, "vec2($1)");
+
+    src.to_string()
+}
+
 pub struct MergeResult {
     pub shader: String,
     pub dependencies: HashSet<String>,
@@ -751,7 +775,8 @@ pub fn merge_vertex_and_fragment(
     // whether we need to add a call to `delinearize` in the `hook` function.
     is_last_pass: bool,
 ) -> Result<MergeResult, Error> {
-    let mut vertex_ast = ast::TranslationUnit::parse(vertex).map_err(|err| {
+    let vertex = fix_glsl(vertex);
+    let mut vertex_ast = ast::TranslationUnit::parse(&vertex).map_err(|err| {
         for (lineno, line) in vertex.lines().enumerate() {
             eprintln!("{:>4}: {line}", lineno + 1);
         }
@@ -797,7 +822,8 @@ pub fn merge_vertex_and_fragment(
     set_vertex_inputs(&mut vertex_ast);
     outputs_as_simple_globals(&mut vertex_ast);
 
-    let mut fragment_ast = ast::TranslationUnit::parse(fragment).map_err(|err| {
+    let fragment = fix_glsl(fragment);
+    let mut fragment_ast = ast::TranslationUnit::parse(&fragment).map_err(|err| {
         for (lineno, line) in fragment.lines().enumerate() {
             eprintln!("{:>4}: {line}", lineno + 1);
         }

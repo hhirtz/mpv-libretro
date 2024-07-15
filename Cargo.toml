@@ -11,3 +11,4 @@ image = { version = "0.25.1", default-features = false, features = ["jpeg", "png
 librashader-common = { version = "0.2.7", default-features = false }
 librashader-preprocess = { version = "0.2.7", default-features = false }
 librashader-presets = { version = "0.2.7", default-features = false }
+regex = { version = "1.10.5", default-features = false }
