@@ -733,9 +733,9 @@ fn fix_glsl(src: &str) -> String {
     static RE_VEC3: OnceLock<Regex> = OnceLock::new();
     static RE_VEC2: OnceLock<Regex> = OnceLock::new();
 
-    let re_vec4 = RE_VEC4.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xxxx").unwrap());
-    let re_vec3 = RE_VEC3.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xxx").unwrap());
-    let re_vec2 = RE_VEC2.get_or_init(|| Regex::new(r"(\d+\.\d+)\.xx").unwrap());
+    let re_vec4 = RE_VEC4.get_or_init(|| Regex::new(r"([0-9]+\.[0-9]+)\.xxxx").unwrap());
+    let re_vec3 = RE_VEC3.get_or_init(|| Regex::new(r"(\[0-9]\.[0-9]+)\.xxx").unwrap());
+    let re_vec2 = RE_VEC2.get_or_init(|| Regex::new(r"(\[0-9]\.\[0-9])\.xx").unwrap());
 
     // In this order, to avoid wrong matches
     let src = re_vec4.replace_all(src, "vec4($1)");
