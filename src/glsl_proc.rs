@@ -107,6 +107,7 @@ fn into_namespace(shader_ast: &mut ast::TranslationUnit, prefix: &str) {
                 ast::DeclarationData::Block(_) => {}
                 ast::DeclarationData::Precision(_, _) => unreachable!(),
                 ast::DeclarationData::Invariant(_) => unreachable!(),
+                ast::DeclarationData::TypeOnly(_) => unreachable!(),
             },
         }
     }
@@ -721,30 +722,6 @@ fn set_samplers(
     samplers
 }
 
-/// Fix the GLSL source so that glsl-lang can handle it.
-///
-/// Specifically, glsl-lang throws errors on swizzled float literals:
-/// https://www.khronos.org/opengl/wiki/Data_Type_(GLSL)#Swizzling
-fn fix_glsl(src: &str) -> String {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    static RE_VEC4: OnceLock<Regex> = OnceLock::new();
-    static RE_VEC3: OnceLock<Regex> = OnceLock::new();
-    static RE_VEC2: OnceLock<Regex> = OnceLock::new();
-
-    let re_vec4 = RE_VEC4.get_or_init(|| Regex::new(r"([0-9]+\.[0-9]+)\.xxxx").unwrap());
-    let re_vec3 = RE_VEC3.get_or_init(|| Regex::new(r"(\[0-9]\.[0-9]+)\.xxx").unwrap());
-    let re_vec2 = RE_VEC2.get_or_init(|| Regex::new(r"(\[0-9]\.\[0-9])\.xx").unwrap());
-
-    // In this order, to avoid wrong matches
-    let src = re_vec4.replace_all(src, "vec4($1)");
-    let src = re_vec3.replace_all(&src, "vec3($1)");
-    let src = re_vec2.replace_all(&src, "vec2($1)");
-
-    src.to_string()
-}
-
 pub struct MergeResult {
     pub shader: String,
     pub dependencies: HashSet<String>,
@@ -775,12 +752,10 @@ pub fn merge_vertex_and_fragment(
     // whether we need to add a call to `delinearize` in the `hook` function.
     is_last_pass: bool,
 ) -> Result<MergeResult, Error> {
-    let vertex = fix_glsl(vertex);
-    let mut vertex_ast = ast::TranslationUnit::parse(&vertex).map_err(|err| {
+    let mut vertex_ast = ast::TranslationUnit::parse(vertex).inspect_err(|_| {
         for (lineno, line) in vertex.lines().enumerate() {
             eprintln!("{:>4}: {line}", lineno + 1);
         }
-        err
     })?;
     vertex_ast.0.insert(
         0,
@@ -822,12 +797,10 @@ pub fn merge_vertex_and_fragment(
     set_vertex_inputs(&mut vertex_ast);
     outputs_as_simple_globals(&mut vertex_ast);
 
-    let fragment = fix_glsl(fragment);
-    let mut fragment_ast = ast::TranslationUnit::parse(&fragment).map_err(|err| {
+    let mut fragment_ast = ast::TranslationUnit::parse(fragment).inspect_err(|_| {
         for (lineno, line) in fragment.lines().enumerate() {
             eprintln!("{:>4}: {line}", lineno + 1);
         }
-        err
     })?;
     remove_push_constant_and_ubo(&mut fragment_ast);
     remove_inputs(&mut fragment_ast);
