@@ -165,25 +165,13 @@ fn main() -> Result<(), Error> {
         };
         println!("//!FILTER {filter_mode}");
 
-        match img {
-            image::DynamicImage::ImageRgb8(img) => {
-                println!("//!FORMAT rgba8");
-                for pixel in img.pixels() {
-                    let [r, g, b] = pixel.0;
-                    print!("{r:02x}{g:02x}{b:02x}ff");
-                }
-                println!();
-            }
-            image::DynamicImage::ImageRgba8(img) => {
-                println!("//!FORMAT rgba8");
-                for pixel in img.pixels() {
-                    let [r, g, b, a] = pixel.0;
-                    print!("{r:02x}{g:02x}{b:02x}{a:02x}");
-                }
-                println!();
-            }
-            _ => panic!("unsupported color type for texture: {:?}", img.color()),
+        println!("//!FORMAT rgba8");
+        let img = img.to_rgba8();
+        for pixel in img.pixels() {
+            let [r, g, b, a] = pixel.0;
+            print!("{r:02x}{g:02x}{b:02x}{a:02x}");
         }
+        println!();
     }
 
     // libretro shaders expect linear RGB while mpv's MAIN texture is sRGB.
