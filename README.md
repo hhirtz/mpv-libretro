@@ -2,13 +2,14 @@
 
 Convert libretro shaders presets (.slangp) into MPV shaders.
 
-Shaders created with this tool require `vo=gpu-next`.
+Shaders created with this tool require `vo=gpu-next` (the default since mpv
+v0.41.0).
 
 ## Usage
 
 ```
 cargo run -- some_libretro_shader_preset.slangp >my_new_mpv_shader.glsl
-mpv --vo=gpu-next --glsl-shader=my_new_mpv_shader.glsl video.mp4
+mpv --glsl-shader=my_new_mpv_shader.glsl video.mp4
 ```
 
 ## Limitations
